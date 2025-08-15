@@ -29,18 +29,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     for tx_hash in transactions {
                         let tx = provider_clone.get_transaction_by_hash(*tx_hash).await.unwrap().unwrap();
                         let value = tx.value();
-                        if value > 0 {
-                            let tx_request = tx.into_request();
-                            let from = tx_request.from.unwrap();
-                            let to = tx_request.to.unwrap().into_to().unwrap();
-                            println!(
-                                "{} | {}->{} : {:?} wei", 
-                                tx_hash.to_string(), 
-                                from.to_string().chars().take(5).collect::<String>(), 
-                                to.to_string().chars().take(5).collect::<String>(), 
-                                value
-                            );
+
+                        if value == 0 {
+                            continue;
                         }
+
+                        let tx_request = tx.into_request();
+                        let from = tx_request.from.unwrap();
+                        let to = tx_request.to.unwrap().into_to().unwrap();
+
+                        println!(
+                            "{} | {}->{} : {:?} wei", 
+                            tx_hash.to_string(), 
+                            from.to_string().chars().take(5).collect::<String>(), 
+                            to.to_string().chars().take(5).collect::<String>(), 
+                            value
+                        );
                     }
                 }
                 Ok(None) => {
