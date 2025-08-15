@@ -16,25 +16,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let sub = provider.subscribe_blocks().await?;
     let mut stream = sub.into_stream();
-      
+
     while let Some(block_hash) = stream.next().await {
+        println!("{:?}", block_hash.hash);
+
         let provider_clone = provider.clone();
         
         tokio::spawn(async move {
-            let block = provider_clone.get_block_by_hash(block_hash.hash).await.unwrap();
-
-            match block {
-                Some(block) => {
-                    if let Some(transactions) = block.transactions.as_transactions() {
-                        for (_, tx) in transactions.iter().enumerate() {
-                            let value = tx.value();
-                            println!("{}", value);
-                        }
-                    }
-                }
-                None => {
-                    println!("Block not found");
-                }
+            let block = provider_clone.get_block_by_hash(block_hash.hash).await.unwrap().unwrap();
+            let transactions = block.transactions.as_transactions().unwrap();
+            for (_, tx) in transactions.iter().enumerate() {
+                let value = tx.value();
+                println!("{}", value);
             }
         });
     }
