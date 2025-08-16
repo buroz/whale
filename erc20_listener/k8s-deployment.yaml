@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: erc20-listener
+  labels:
+    app: erc20-listener
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: erc20-listener
+  template:
+    metadata:
+      labels:
+        app: erc20-listener
+    spec:
+      containers:
+      - name: erc20-listener
+        image: whale:latest
+        imagePullPolicy: Never
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
