@@ -1,8 +1,20 @@
 use alloy::{
-    primitives::{address, Uint}, providers::{Provider, ProviderBuilder, WsConnect}, rpc::types::{BlockNumberOrTag, Filter}, sol, sol_types::SolEvent
+    providers::{Provider, ProviderBuilder, WsConnect}, 
+    rpc::types::{BlockNumberOrTag, Filter}, 
+    sol, 
+    sol_types::SolEvent
 };
 use futures_util::StreamExt;
-use std::{collections::HashMap, error::Error};
+use questdb::{
+    ingress::{
+        Sender,
+        Buffer,
+        TimestampMicros,
+        ProtocolVersion
+    },
+};
+use anyhow::Result;
+use std::sync::{Arc, Mutex};
 
 const RPC_URL: &str = "wss://mainnet.gateway.tenderly.co";
 
@@ -15,16 +27,13 @@ sol! {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let mut tokens_map = HashMap::new();
-
-    tokens_map.insert(address!("0xdAC17F958D2ee523a2206206994597C13D831ec7"), 6);  // USDT
-    tokens_map.insert(address!("0xB8c77482e45F1F44dE1745F52C74426C631bDD52"), 18); // BNB
-    tokens_map.insert(address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"), 6);  // USDC
-    tokens_map.insert(address!("0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84"), 18); // stETH
+async fn main() -> Result<()> {
+    let sender = Sender::from_conf("http::addr=localhost:9000;username=admin;password=quest;retry_timeout=20000;")
+        .map_err(|e| anyhow::anyhow!("QuestDB sender error: {}", e))?;
+    
+    let sender = Arc::new(Mutex::new(sender));
 
     let ws = WsConnect::new(RPC_URL); 
-    // let provider = Arc::new(ProviderBuilder::new().connect_ws(ws).await?); 
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
 
     let filter = Filter::new()
@@ -35,24 +44,46 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut stream = sub.into_stream();
   
     while let Some(log) = stream.next().await {
-        let tokens_map_clone = tokens_map.clone();
+        let sender_clone = sender.clone();
 
         tokio::spawn(async move {
             if let Ok(transfer) = Transfer::decode_log_data(&log.data()) {
                 let address = log.address();
 
-                if let Some(decimals) = tokens_map_clone.get(&address) {
-                    let divisor = Uint::from(10u64).pow(Uint::from(*decimals));
-                    let value = transfer.value / divisor;
-                    println!(
-                        "{} | {} | {}->{}: {}", 
-                        log.transaction_hash.unwrap().to_string(), 
-                        address, 
-                        transfer.from.to_string().chars().take(5).collect::<String>(), 
-                        transfer.to.to_string().chars().take(5).collect::<String>(), 
-                        value
-                    );
+                let mut buffer = Buffer::new(ProtocolVersion::V2);
+
+                let amount = transfer.value.to_string();
+
+                if amount == "0" {
+                    buffer.clear();
+                    println!("Amount is 0 skipping: {:?}", log.transaction_hash.unwrap().to_string());
+                    return;
                 }
+
+                if let Err(e) = buffer
+                    .table("transfers")
+                    .and_then(|b| b.column_str("token_address", address.to_string()))
+                    .and_then(|b| b.column_str("from", transfer.from.to_string()))
+                    .and_then(|b| b.column_str("to", transfer.to.to_string()))
+                    .and_then(|b| b.column_str("transaction_hash", log.transaction_hash.unwrap().to_string()))
+                    .and_then(|b| b.column_i64("log_index", log.log_index.unwrap() as i64))
+                    .and_then(|b| b.column_i64("chain_id", 1))
+                    .and_then(|b| b.column_i64("block_number", log.block_number.unwrap() as i64))
+                    .and_then(|b| b.column_str("amount", amount))
+                    .and_then(|b| b.at(TimestampMicros::now()))
+                {
+                    eprintln!("Error writing to buffer: {}", e);
+                }
+
+                if let Ok(mut sender_guard) = sender_clone.lock() {
+                    if let Err(e) = sender_guard.flush(&mut buffer) {
+                        eprintln!("Error flushing buffer: {}", e);
+                    }
+                } else {
+                    eprintln!("Failed to lock sender");
+                }
+
+                buffer.clear();
             }
         });
     }

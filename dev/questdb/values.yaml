@@ -1,0 +1,30 @@
+questdb:
+  dataDir: /var/lib/questdb
+  configStorageType: ConfigMap
+  serverConfig:
+    enabled: false
+    options: {}
+  loggingConfig:
+    enabled: false
+    options: {}
+  # env supports key/value pairs that are added directly to the questdb statefulset's env
+  env: {}
+  # envFrom supports a list of sources that will be injected into the questdb statefulset's env
+  envFrom: []
+
+persistence:
+  enabled: true
+  accessMode: ReadWriteOnce
+  size: 50Gi
+  annotations: {}
+  # Uncomment storageClass if you want to use a specific Storage Class
+  # storageClass: STORAGE_CLASS_NAME_HERE
+  # Uncomment existingClaim to enable existing pvc to be mounted for db storage
+  # size and accessMode will be ignored
+  # existing pvc needs to be in the namespace where questdb will be deployed
+  # if you have problems with aws availability zones use nodeSelector to schedule nodes in the same az as volume
+  # existingClaim: PVC_NAME_HERE
+
+metrics:
+  enabled: true
+  port: 9003
